@@ -1,4 +1,3 @@
-
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', process.env.ALLOWED_ORIGIN || '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -12,7 +11,7 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'Dados incompletos' });
   }
 
-  const apiKey = process.env.ANTHROPIC_API_KEY;
+  const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) return res.status(500).json({ error: 'Chave de API não configurada no servidor' });
 
   const prompt = `Você é um especialista em lazer e entretenimento em Fortaleza, Ceará, Brasil.
@@ -22,9 +21,7 @@ Perfil do usuário:
 - Como quer se sentir: ${sentir}
 - Atividades de interesse: ${activities.join(', ')}
 
-Use sua busca na web para encontrar dados atuais sobre avaliações, comentários e recomendações de lugares em Fortaleza que combinem com esse perfil.
-
-Liste os 4 MELHORES lugares específicos e reais para visitar HOJE em Fortaleza.
+Com base no seu conhecimento sobre Fortaleza, liste os 4 MELHORES lugares específicos e reais para visitar HOJE em Fortaleza que combinem com esse perfil.
 
 Responda SOMENTE com JSON válido, sem texto antes ou depois, sem blocos de código:
 {
@@ -36,7 +33,7 @@ Responda SOMENTE com JSON válido, sem texto antes ou depois, sem blocos de cód
       "tipo": "categoria (ex: Praia, Show, Bar, Parque)",
       "icone": "emoji único",
       "nota": 4.5,
-      "descricao": "2 frases sobre por que combina com esse perfil.",
+      "descricao": "2 frases sobre por que combina com esse perfil. Mencione algo concreto e específico sobre o lugar.",
       "tags": ["tag1", "tag2", "tag3"],
       "destaque": true
     }
@@ -45,36 +42,31 @@ Responda SOMENTE com JSON válido, sem texto antes ou depois, sem blocos de cód
 Apenas o primeiro lugar deve ter destaque true, os demais false.`;
 
   try {
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 1200,
-        tools: [{ type: 'web_search_20250305', name: 'web_search' }],
-        messages: [{ role: 'user', content: prompt }],
-      }),
-    });
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: { temperature: 0.7, maxOutputTokens: 1200 }
+        }),
+      }
+    );
 
     if (!response.ok) {
       const err = await response.json().catch(() => ({}));
-      return res.status(response.status).json({ error: err.error?.message || 'Erro na API da Anthropic' });
+      return res.status(response.status).json({ error: err.error?.message || 'Erro na API do Gemini' });
     }
 
     const data = await response.json();
-    const textBlock = (data.content || []).find(b => b.type === 'text');
-    if (!textBlock) return res.status(500).json({ error: 'Resposta vazia da IA' });
-
-    let raw = textBlock.text.replace(/```json|```/g, '').trim();
-    const s = raw.indexOf('{');
-    const e = raw.lastIndexOf('}');
+    const raw = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    const clean = raw.replace(/```json|```/g, '').trim();
+    const s = clean.indexOf('{');
+    const e = clean.lastIndexOf('}');
     if (s === -1) return res.status(500).json({ error: 'Formato de resposta inválido' });
 
-    const result = JSON.parse(raw.slice(s, e + 1));
+    const result = JSON.parse(clean.slice(s, e + 1));
     return res.status(200).json(result);
   } catch (err) {
     console.error(err);
