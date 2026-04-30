@@ -4,27 +4,35 @@ export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
-  if (req.method === 'OPTIONS') return res.status(200).end();
-
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Método não permitido' });
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
   }
 
-  // ===== Validação =====
+  if (req.method !== 'POST') {
+    return res.status(405).json({
+      error: 'Método não permitido'
+    });
+  }
+
+  // ===== BODY =====
   const { humor, sentir, activities } = req.body || {};
 
   if (!humor || !sentir || !Array.isArray(activities) || activities.length === 0) {
-    return res.status(400).json({ error: 'Dados incompletos' });
+    return res.status(400).json({
+      error: 'Dados incompletos'
+    });
   }
 
   // ===== API KEY =====
   const apiKey = process.env.GEMINI_API_KEY;
 
   if (!apiKey) {
-    return res.status(500).json({ error: 'GEMINI_API_KEY não configurada' });
+    return res.status(500).json({
+      error: 'GEMINI_API_KEY não configurada'
+    });
   }
 
-  // ===== Prompt =====
+  // ===== PROMPT =====
   const prompt = `
 Você é um especialista em lazer e entretenimento em Fortaleza, Ceará, Brasil.
 
@@ -56,8 +64,9 @@ Apenas o primeiro lugar tem destaque true.
 `;
 
   try {
+    // ===== REQUEST GEMINI =====
     const response = await fetch(
-       `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
       {
         method: 'POST',
         headers: {
@@ -66,7 +75,11 @@ Apenas o primeiro lugar tem destaque true.
         body: JSON.stringify({
           contents: [
             {
-              parts: [{ text: prompt }]
+              parts: [
+                {
+                  text: prompt
+                }
+              ]
             }
           ],
           generationConfig: {
@@ -77,17 +90,20 @@ Apenas o primeiro lugar tem destaque true.
       }
     );
 
-    const responseData = await response.json();
+    const rawResponseText = await response.text();
+
+    console.log('========== GEMINI DEBUG ==========');
+    console.log('STATUS:', response.status);
+    console.log('BODY:', rawResponseText);
+    console.log('==================================');
 
     if (!response.ok) {
-      console.error('Erro Gemini:', responseData);
-
       return res.status(response.status).json({
-        error:
-          responseData?.error?.message ||
-          'Erro ao consultar a API do Gemini'
+        error: rawResponseText
       });
     }
+
+    const responseData = JSON.parse(rawResponseText);
 
     const rawText =
       responseData?.candidates?.[0]?.content?.parts?.[0]?.text || '';
@@ -98,7 +114,7 @@ Apenas o primeiro lugar tem destaque true.
       });
     }
 
-    // Remove markdown fences se vier ```json
+    // ===== CLEAN JSON =====
     const cleaned = rawText
       .replace(/```json/gi, '')
       .replace(/```/g, '')
@@ -108,10 +124,9 @@ Apenas o primeiro lugar tem destaque true.
     const jsonEnd = cleaned.lastIndexOf('}');
 
     if (jsonStart === -1 || jsonEnd === -1) {
-      console.error('Resposta não JSON:', cleaned);
-
       return res.status(500).json({
-        error: 'A IA retornou formato inválido'
+        error: 'A IA retornou JSON inválido',
+        raw: cleaned
       });
     }
 
@@ -122,10 +137,10 @@ Apenas o primeiro lugar tem destaque true.
     return res.status(200).json(parsed);
 
   } catch (err) {
-    console.error('Erro interno:', err);
+    console.error('ERRO INTERNO:', err);
 
     return res.status(500).json({
-      error: 'Erro interno no servidor'
+      error: err.message || 'Erro interno no servidor'
     });
   }
 }
