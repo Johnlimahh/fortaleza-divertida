@@ -19,6 +19,7 @@ export default async function handler(req, res) {
 
   // ===== API KEY =====
   const apiKey = process.env.GEMINI_API_KEY;
+
   if (!apiKey) {
     return res.status(500).json({ error: 'GEMINI_API_KEY não configurada' });
   }
@@ -55,14 +56,19 @@ Apenas o primeiro lugar tem destaque true.
 `;
 
   try {
-    // ✅ API V1 (CORRETA)
     const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json'
+        },
         body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
+          contents: [
+            {
+              parts: [{ text: prompt }]
+            }
+          ],
           generationConfig: {
             temperature: 0.7,
             maxOutputTokens: 1200
@@ -71,34 +77,55 @@ Apenas o primeiro lugar tem destaque true.
       }
     );
 
+    const responseData = await response.json();
+
     if (!response.ok) {
-      const error = await response.json().catch(() => ({}));
+      console.error('Erro Gemini:', responseData);
+
       return res.status(response.status).json({
-        error: error.error?.message || 'Erro na API do Gemini'
+        error:
+          responseData?.error?.message ||
+          'Erro ao consultar a API do Gemini'
       });
     }
 
-    const data = await response.json();
-    const raw =
-      data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    const rawText =
+      responseData?.candidates?.[0]?.content?.parts?.[0]?.text || '';
 
-    if (!raw) {
-      return res.status(500).json({ error: 'Resposta vazia da IA' });
+    if (!rawText) {
+      return res.status(500).json({
+        error: 'Resposta vazia da IA'
+      });
     }
 
-    const clean = raw.replace(/```json|```/gi, '').trim();
-    const start = clean.indexOf('{');
-    const end = clean.lastIndexOf('}');
+    // Remove markdown fences se vier ```json
+    const cleaned = rawText
+      .replace(/```json/gi, '')
+      .replace(/```/g, '')
+      .trim();
 
-    if (start === -1 || end === -1) {
-      return res.status(500).json({ error: 'JSON inválido retornado pela IA' });
+    const jsonStart = cleaned.indexOf('{');
+    const jsonEnd = cleaned.lastIndexOf('}');
+
+    if (jsonStart === -1 || jsonEnd === -1) {
+      console.error('Resposta não JSON:', cleaned);
+
+      return res.status(500).json({
+        error: 'A IA retornou formato inválido'
+      });
     }
 
-    const result = JSON.parse(clean.slice(start, end + 1));
-    return res.status(200).json(result);
+    const parsed = JSON.parse(
+      cleaned.slice(jsonStart, jsonEnd + 1)
+    );
+
+    return res.status(200).json(parsed);
 
   } catch (err) {
-    console.error(err);
-    return res.status(500).json({ error: 'Erro interno no servidor' });
+    console.error('Erro interno:', err);
+
+    return res.status(500).json({
+      error: 'Erro interno no servidor'
+    });
   }
 }
