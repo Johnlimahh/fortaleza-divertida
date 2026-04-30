@@ -52,8 +52,8 @@ Apenas o primeiro lugar deve ter destaque true.`;
         body: JSON.stringify({
           contents: [{ parts: [{ text: prompt }] }],
           generationConfig: {
-            temperature: 0.7,
-            maxOutputTokens: 1200
+           maxOutputTokens: 350,
+            temperature: 0.6
           }
         }),
       }
