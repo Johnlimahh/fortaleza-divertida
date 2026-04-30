@@ -1,3 +1,6 @@
+// Cache em memória (simples e eficiente)
+const cache = new Map();
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', process.env.ALLOWED_ORIGIN || '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -16,32 +19,41 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: 'Chave de API não configurada no servidor' });
   }
 
-  const prompt = `Você é um especialista em lazer e entretenimento em Fortaleza, Ceará, Brasil.
+  // 🔑 chave de cache
+  const key = JSON.stringify({ humor, sentir, activities });
 
-Perfil do usuário:
-- Humor atual: ${humor}
-- Como quer se sentir: ${sentir}
-- Atividades de interesse: ${activities.join(', ')}
+  // ⚡ verifica cache
+  if (cache.has(key)) {
+    console.log("CACHE HIT");
+    return res.status(200).json(cache.get(key));
+  }
 
-Liste 4 lugares REAIS e ESPECÍFICOS em Fortaleza que combinem com esse perfil.
+  // 🧠 prompt otimizado (menos tokens)
+  const prompt = `Você recomenda lugares em Fortaleza.
 
-Responda SOMENTE com JSON válido, sem texto antes ou depois:
+Perfil:
+Humor: ${humor}
+Objetivo: ${sentir}
+Interesses: ${activities.join(', ')}
+
+Retorne APENAS JSON:
+
 {
-  "titulo": "frase curta (máx 6 palavras)",
-  "subtitulo": "frase contextual",
-  "lugares": [
-    {
-      "nome": "Nome real",
-      "tipo": "categoria",
-      "icone": "emoji",
-      "nota": 4.5,
-      "descricao": "2 frases naturais e específicas",
-      "tags": ["tag1","tag2","tag3"],
-      "destaque": true
-    }
-  ]
+ "titulo": "curto",
+ "subtitulo": "1 frase",
+ "lugares": [
+  {
+   "nome": "",
+   "tipo": "",
+   "icone": "",
+   "nota": 4.5,
+   "descricao": "curta",
+   "tags": [],
+   "destaque": true
+  }
+ ]
 }
-Apenas o primeiro lugar deve ter destaque true.`;
+4 lugares. Só o primeiro destaque true.`;
 
   try {
     const response = await fetch(
@@ -52,8 +64,8 @@ Apenas o primeiro lugar deve ter destaque true.`;
         body: JSON.stringify({
           contents: [{ parts: [{ text: prompt }] }],
           generationConfig: {
-           maxOutputTokens: 350,
-            temperature: 0.6
+            temperature: 0.6,
+            maxOutputTokens: 350
           }
         }),
       }
@@ -69,16 +81,14 @@ Apenas o primeiro lugar deve ter destaque true.`;
 
     const data = await response.json();
 
-    // pega texto da resposta
     const raw = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
 
-    // limpa possíveis blocos markdown
+    // 🧹 limpeza robusta
     const clean = raw
       .replace(/```json/gi, '')
       .replace(/```/g, '')
       .trim();
 
-    // extrai JSON válido
     const start = clean.indexOf('{');
     const end = clean.lastIndexOf('}');
 
@@ -87,15 +97,16 @@ Apenas o primeiro lugar deve ter destaque true.`;
       return res.status(500).json({ error: 'Formato de resposta inválido' });
     }
 
-    const jsonString = clean.slice(start, end + 1);
-
     let result;
     try {
-      result = JSON.parse(jsonString);
+      result = JSON.parse(clean.slice(start, end + 1));
     } catch (e) {
-      console.error("Erro ao parsear JSON:", jsonString);
+      console.error("Erro ao parsear JSON:", clean);
       return res.status(500).json({ error: 'Erro ao processar resposta da IA' });
     }
+
+    // 💾 salva no cache
+    cache.set(key, result);
 
     return res.status(200).json(result);
 
